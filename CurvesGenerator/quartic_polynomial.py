@@ -1,5 +1,6 @@
 """
 Quartic Polynomial
+四次多项式
 """
 
 import numpy as np

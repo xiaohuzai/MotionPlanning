@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 u"""
 Cubic Spline library on python
-
+三次样条插值
+对照：
+https://zhuanlan.zhihu.com/p/62860859
 author Atsushi Sakai
 
 usage: see test codes as below
@@ -20,13 +22,16 @@ class Spline:
     """
 
     def __init__(self, x, y):
-        self.b, self.c, self.d, self.w = [], [], [], []
+        '''
+        S(x) = ai + bi * (x - xi) + ci * (x - xi)^2 + di * (x - xi)^3 
+        '''
+        self.b, self.c, self.d = [], [], []
 
         self.x = x
         self.y = y
 
         self.nx = len(x)  # dimension of x
-        h = np.diff(x)
+        h = np.diff(x) # x的步长
 
         # calc coefficient c
         self.a = [iy for iy in y]
@@ -34,7 +39,7 @@ class Spline:
         # calc coefficient c
         A = self.__calc_A(h)
         B = self.__calc_B(h)
-        self.c = np.linalg.solve(A, B)
+        self.c = np.linalg.solve(A, B) #文中mi=2ci
         #  print(self.c1)
 
         # calc spline coefficient b and d
@@ -105,6 +110,7 @@ class Spline:
     def __calc_A(self, h):
         u"""
         calc matrix A for spline coefficient c
+        自然边界条件的计算，文章中m的系数矩阵
         """
         A = np.zeros((self.nx, self.nx))
         A[0, 0] = 1.0
@@ -123,11 +129,12 @@ class Spline:
     def __calc_B(self, h):
         u"""
         calc matrix B for spline coefficient c
+        自然边界条件的计算，文章中方程右边
         """
         B = np.zeros(self.nx)
         for i in range(self.nx - 2):
-            B[i + 1] = 3.0 * (self.a[i + 2] - self.a[i + 1]) / \
-                h[i + 1] - 3.0 * (self.a[i + 1] - self.a[i]) / h[i]
+            B[i + 1] = 3.0 * ((self.a[i + 2] - self.a[i + 1]) / \
+                              h[i + 1] - (self.a[i + 1] - self.a[i]) / h[i])
         #  print(B)
         return B
 
