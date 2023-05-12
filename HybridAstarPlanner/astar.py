@@ -21,7 +21,7 @@ class Para:
         self.xw = xw
         self.yw = yw
         self.reso = reso  # resolution of grid world
-        self.motion = motion  # motion set
+        self.motion = motion  # motion set 上下左右斜对角
 
 
 def astar_planning(sx, sy, gx, gy, ox, oy, reso, rr):
@@ -87,23 +87,30 @@ def astar_planning(sx, sy, gx, gy, ox, oy, reso, rr):
 
 
 def calc_holonomic_heuristic_with_obstacle(node, ox, oy, reso, rr):
+    '''
+    计算一个heuristic代价图，包括考虑了障碍物
+    '''
+    # x position 离散化后的, y position 离散化后的, cost, parent index
     n_goal = Node(round(node.x[-1] / reso), round(node.y[-1] / reso), 0.0, -1)
-
+    # ox oy: 离散化后的障碍物的位置
     ox = [x / reso for x in ox]
     oy = [y / reso for y in oy]
 
-    P, obsmap = calc_parameters(ox, oy, reso, rr)
+    # rr: robot radius
+    P, obsmap = calc_parameters(ox, oy, rr, reso)
 
+    # index : node
     open_set, closed_set = dict(), dict()
     open_set[calc_index(n_goal, P)] = n_goal
 
     q_priority = []
+    # q_priority是一个小顶堆
     heapq.heappush(q_priority, (n_goal.cost, calc_index(n_goal, P)))
 
     while True:
         if not open_set:
+            # 搜索完了，没有可搜的了
             break
-
         _, ind = heapq.heappop(q_priority)
         n_curr = open_set[ind]
         closed_set[ind] = n_curr
@@ -115,6 +122,7 @@ def calc_holonomic_heuristic_with_obstacle(node, ox, oy, reso, rr):
                         n_curr.cost + u_cost(P.motion[i]), ind)
 
             if not check_node(node, P, obsmap):
+                # 出了图或者遇到障碍物，就continue
                 continue
 
             n_ind = calc_index(node, P)
@@ -165,6 +173,7 @@ def calc_index(node, P):
 def calc_parameters(ox, oy, rr, reso):
     minx, miny = round(min(ox)), round(min(oy))
     maxx, maxy = round(max(ox)), round(max(oy))
+    # xw yw: x_width, y_width
     xw, yw = maxx - minx, maxy - miny
 
     motion = get_motion()
@@ -175,6 +184,9 @@ def calc_parameters(ox, oy, rr, reso):
 
 
 def calc_obsmap(ox, oy, rr, P):
+    '''
+    obsmap是一个栅格图，true代表有obstacle，false代表没有obstacle
+    '''
     obsmap = [[False for _ in range(P.yw)] for _ in range(P.xw)]
 
     for x in range(P.xw):

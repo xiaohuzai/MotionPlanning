@@ -24,32 +24,38 @@ import CurvesGenerator.reeds_shepp as rs
 class C:  # Parameter config
     PI = math.pi
 
-    XY_RESO = 2.0  # [m]
-    YAW_RESO = np.deg2rad(15.0)  # [rad]
-    MOVE_STEP = 0.4  # [m] path interporate resolution
-    N_STEER = 20.0  # steer command number
+    XY_RESO = 2.0  # [m] 将整个区域按照x,y分成棋盘，每个格子2*2大小，相当于每个node
+    YAW_RESO = np.deg2rad(15.0)  # [rad] 按照15°将[-pi, pi)离散成不同地档次
+    MOVE_STEP = 0.4  # [m] path interporate resolution 
+    N_STEER = 20.0  # steer command number 方向盘转角的挡位
     COLLISION_CHECK_STEP = 5  # skip number for collision check
     EXTEND_BOUND = 1  # collision check range extended
 
-    GEAR_COST = 100.0  # switch back penalty cost
-    BACKWARD_COST = 5.0  # backward penalty cost
+    GEAR_COST = 100.0  # switch back penalty cost 换档惩罚
+    BACKWARD_COST = 5.0  # backward penalty cost 后退惩罚
     STEER_CHANGE_COST = 5.0  # steer angle change penalty cost
     STEER_ANGLE_COST = 1.0  # steer angle penalty cost
     H_COST = 15.0  # Heuristic cost penalty cost
 
-    RF = 4.5  # [m] distance from rear to vehicle front end of vehicle
+    RF = 4.5  # [m] distance from rear to vehicle front end of vehicle 
     RB = 1.0  # [m] distance from rear to vehicle back end of vehicle
-    W = 3.0  # [m] width of vehicle
-    WD = 0.7 * W  # [m] distance between left-right wheels
-    WB = 3.5  # [m] Wheel base
-    TR = 0.5  # [m] Tyre radius
-    TW = 1  # [m] Tyre width
-    MAX_STEER = 0.6  # [rad] maximum steering angle
+    W = 3.0  # [m] width of vehicle 车宽
+    WD = 0.7 * W  # [m] distance between left-right wheels 轮间距
+    WB = 3.5  # [m] Wheel base 轴距
+    TR = 0.5  # [m] Tyre radius 轮胎半径
+    TW = 1  # [m] Tyre width 轮胎宽度
+    MAX_STEER = 0.6  # [rad] maximum steering angle 方向盘最大转向角
 
 
 class Node:
     def __init__(self, xind, yind, yawind, direction, x, y,
                  yaw, directions, steer, cost, pind):
+        '''
+        xind yind yawind: x_idx，y_idx，yaw_idx，即将连续值离散化
+        pind: 即parent index
+        x,y,yaw,directions都是list，怀疑是记录了一个轨迹？
+        确实是记录了一个轨迹，记录的是上一个node到这个node的轨迹
+        '''
         self.xind = xind
         self.yind = yind
         self.yawind = yawind
@@ -106,58 +112,63 @@ class QueuePrior:
 
 
 def hybrid_astar_planning(sx, sy, syaw, gx, gy, gyaw, ox, oy, xyreso, yawreso):
-    sxr, syr = round(sx / xyreso), round(sy / xyreso)
-    gxr, gyr = round(gx / xyreso), round(gy / xyreso)
-    syawr = round(rs.pi_2_pi(syaw) / yawreso)
-    gyawr = round(rs.pi_2_pi(gyaw) / yawreso)
+    '''
+    sx, sy, syaw：起点的x/y/yaw
+    gx, gy, gyaw: 终点的x/y/yaw
+    ox, oy: 障碍物的位置
+    xyreso, yawreso: node的分辨率
+    '''
+    sxr, syr = round(sx / xyreso), round(sy / xyreso) # 起点的node位置
+    gxr, gyr = round(gx / xyreso), round(gy / xyreso) # 终点的node位置
+    syawr = round(rs.pi_2_pi(syaw) / yawreso) # 起点yaw的node位置
+    gyawr = round(rs.pi_2_pi(gyaw) / yawreso) # 终点yaw的node位置
 
+    # xind, yind, yawind, direction, x, y, yaw, directions, steer, cost, pind
     nstart = Node(sxr, syr, syawr, 1, [sx], [sy], [syaw], [1], 0.0, 0.0, -1)
     ngoal = Node(gxr, gyr, gyawr, 1, [gx], [gy], [gyaw], [1], 0.0, 0.0, -1)
 
     kdtree = kd.KDTree([[x, y] for x, y in zip(ox, oy)])
     P = calc_parameters(ox, oy, xyreso, yawreso, kdtree)
 
+    # 1.0是robot radius，怎么理解这个rr呢，其实就是车离散情况下走一步的采样。
+    # 改这个1.0数值，进行不同的实验，可以看很好玩的效果
+    #hmap即heuristic map
     hmap = astar.calc_holonomic_heuristic_with_obstacle(ngoal, P.ox, P.oy, P.xyreso, 1.0)
     steer_set, direc_set = calc_motion_set()
     open_set, closed_set = {calc_index(nstart, P): nstart}, {}
-
-    qp = QueuePrior()
+    qp = QueuePrior() # node的index ： prioirty（cost）
     qp.put(calc_index(nstart, P), calc_hybrid_cost(nstart, hmap, P))
-
     while True:
         if not open_set:
             return None
-
         ind = qp.get()
         n_curr = open_set[ind]
         closed_set[ind] = n_curr
         open_set.pop(ind)
-
         update, fpath = update_node_with_analystic_expantion(n_curr, ngoal, P)
-
+        # 如果迭代到最后，当前node到目标node可以直接生成一条rs曲线，就退出不找了。
+        # rs曲线已经是一条考虑cost最有的曲线了
         if update:
             fnode = fpath
             break
-
         for i in range(len(steer_set)):
+            # 遍历周围可以走的路线
             node = calc_next_node(n_curr, ind, steer_set[i], direc_set[i], P)
-
             if not node:
                 continue
-
             node_ind = calc_index(node, P)
-
             if node_ind in closed_set:
+                # 最优cost的已经搜过，就不搜了
                 continue
-
             if node_ind not in open_set:
+                # 新发现的一个node，放进queue里
                 open_set[node_ind] = node
                 qp.put(node_ind, calc_hybrid_cost(node, hmap, P))
             else:
                 if open_set[node_ind].cost > node.cost:
+                    # cost更小，更新cost
                     open_set[node_ind] = node
                     qp.put(node_ind, calc_hybrid_cost(node, hmap, P))
-
     return extract_path(closed_set, fnode, nstart)
 
 
@@ -190,6 +201,13 @@ def extract_path(closed, ngoal, nstart):
 
 
 def calc_next_node(n_curr, c_id, u, d, P):
+    '''
+    n_curr， c_id: 当前node ， 当前node的id
+    u: steer. + 向右 - 向左
+    d: direction。 + 向前 - 向后
+    P: 一些参数
+    '''
+    # 可以理解去搜下一个node距离当前node的距离，改变它会有很有意思的事情发生
     step = C.XY_RESO * 2
 
     nlist = math.ceil(step / C.MOVE_STEP)
@@ -198,9 +216,9 @@ def calc_next_node(n_curr, c_id, u, d, P):
     yawlist = [rs.pi_2_pi(n_curr.yaw[-1] + d * C.MOVE_STEP / C.WB * math.tan(u))]
 
     for i in range(nlist - 1):
-        xlist.append(xlist[i] + d * C.MOVE_STEP * math.cos(yawlist[i]))
-        ylist.append(ylist[i] + d * C.MOVE_STEP * math.sin(yawlist[i]))
-        yawlist.append(rs.pi_2_pi(yawlist[i] + d * C.MOVE_STEP / C.WB * math.tan(u)))
+        xlist.append(xlist[-1] + d * C.MOVE_STEP * math.cos(yawlist[-1]))
+        ylist.append(ylist[-1] + d * C.MOVE_STEP * math.sin(yawlist[-1]))
+        yawlist.append(rs.pi_2_pi(yawlist[-1] + d * C.MOVE_STEP / C.WB * math.tan(u)))
 
     xind = round(xlist[-1] / P.xyreso)
     yind = round(ylist[-1] / P.xyreso)
@@ -227,6 +245,7 @@ def calc_next_node(n_curr, c_id, u, d, P):
 
     directions = [direction for _ in range(len(xlist))]
 
+    #所以node里面这个xlist包含了上一个node到当前node路径上的点的信息
     node = Node(xind, yind, yawind, direction, xlist, ylist,
                 yawlist, directions, u, cost, c_id)
 
@@ -253,11 +272,10 @@ def is_index_ok(xind, yind, xlist, ylist, yawlist, P):
 
 
 def update_node_with_analystic_expantion(n_curr, ngoal, P):
+    # 尝试从n_curr生成一条rs曲线去到ngoal
     path = analystic_expantion(n_curr, ngoal, P)  # rs path: n -> ngoal
-
     if not path:
         return False, None
-
     fx = path.x[1:-1]
     fy = path.y[1:-1]
     fyaw = path.yaw[1:-1]
@@ -266,7 +284,6 @@ def update_node_with_analystic_expantion(n_curr, ngoal, P):
     fcost = n_curr.cost + calc_rs_path_cost(path)
     fpind = calc_index(n_curr, P)
     fsteer = 0.0
-
     fpath = Node(n_curr.xind, n_curr.yind, n_curr.yawind, n_curr.direction,
                  fx, fy, fyaw, fd, fsteer, fcost, fpind)
 
@@ -367,13 +384,13 @@ def calc_hybrid_cost(node, hmap, P):
 
 
 def calc_motion_set():
+    # 构建车可以行驶的step采样，由 steer (右：+，左：-)和direction（前：+，后：-）组成
     s = np.arange(C.MAX_STEER / C.N_STEER,
                   C.MAX_STEER, C.MAX_STEER / C.N_STEER)
 
-    steer = list(s) + [0.0] + list(-s)
+    steer = list(s) + [0.0] + list(-s) # 构建方向盘的方向，右 +， 左 -
     direc = [1.0 for _ in range(len(steer))] + [-1.0 for _ in range(len(steer))]
     steer = steer + steer
-
     return steer, direc
 
 
@@ -490,11 +507,11 @@ def design_obstacles(x, y):
 
 def main():
     print("start!")
-    x, y = 51, 31
-    sx, sy, syaw0 = 10.0, 7.0, np.deg2rad(120.0)
-    gx, gy, gyaw0 = 45.0, 20.0, np.deg2rad(90.0)
+    x, y = 51, 31 # 整个图幅，宽51，高31
+    sx, sy, syaw0 = 10.0, 7.0, np.deg2rad(120.0) # 起点
+    gx, gy, gyaw0 = 45.0, 20.0, np.deg2rad(90.0) # 终点
 
-    ox, oy = design_obstacles(x, y)
+    ox, oy = design_obstacles(x, y) # 生成障碍物
 
     t0 = time.time()
     path = hybrid_astar_planning(sx, sy, syaw0, gx, gy, gyaw0,
