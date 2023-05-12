@@ -177,6 +177,9 @@ def sampling_paths_for_Stopping(l0, l0_v, l0_a, s0, s0_v, s0_a, ref_path):
 
 
 def SL_2_XY(s_set, l_set, ref_path):
+    '''
+    根据ref_path的s和l来计算笛卡尔坐标系下的序列点的坐标
+    '''
     pathx, pathy = [], []
 
     for i in range(len(s_set)):

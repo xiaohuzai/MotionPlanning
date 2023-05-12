@@ -1,4 +1,7 @@
-'''https://blog.csdn.net/robinvista/article/details/95137143'''
+'''
+https://blog.csdn.net/robinvista/article/details/95137143
+reeds_shepp曲线和dubins曲线类似，区别是dubins曲线不支持倒退，reeds_shepp支持倒退
+'''
 import time
 import math
 import numpy as np
@@ -38,14 +41,12 @@ def calc_optimal_path(sx, sy, syaw, gx, gy, gyaw, maxc, step_size=STEP_SIZE):
 def calc_all_paths(sx, sy, syaw, gx, gy, gyaw, maxc, step_size=STEP_SIZE):
     q0 = [sx, sy, syaw]
     q1 = [gx, gy, gyaw]
-
     paths = generate_path(q0, q1, maxc)
-
     for path in paths:
+        # directions是往前还是往后走
         x, y, yaw, directions = \
             generate_local_course(path.L, path.lengths,
                                   path.ctypes, maxc, step_size * maxc)
-
         # convert global coordinate
         path.x = [math.cos(-q0[2]) * ix + math.sin(-q0[2]) * iy + q0[0] for (ix, iy) in zip(x, y)]
         path.y = [-math.sin(-q0[2]) * ix + math.cos(-q0[2]) * iy + q0[1] for (ix, iy) in zip(x, y)]
@@ -53,7 +54,6 @@ def calc_all_paths(sx, sy, syaw, gx, gy, gyaw, maxc, step_size=STEP_SIZE):
         path.directions = directions
         path.lengths = [l / maxc for l in path.lengths]
         path.L = path.L / maxc
-
     return paths
 
 
